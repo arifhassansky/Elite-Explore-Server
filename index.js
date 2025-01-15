@@ -24,10 +24,26 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
 
+    const usersCollection = client.db("EliteExplore").collection("users");
     const toursCollection = client.db("EliteExplore").collection("tours");
     const guidesCollection = client.db("EliteExplore").collection("guides");
     const storiesCollection = client.db("EliteExplore").collection("stories");
     const bookingsCollection = client.db("EliteExplore").collection("bookings");
+
+    // add user
+    app.post("/users", async (req, res) => {
+      const userData = req.body;
+      const result = await usersCollection.insertOne(userData);
+      res.send(result);
+    });
+
+    // get user data by email
+    app.get("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const result = await usersCollection.findOne(query);
+      res.send(result);
+    });
 
     // get random tour data
     app.get("/random-tours", async (req, res) => {
