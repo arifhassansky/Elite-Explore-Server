@@ -82,7 +82,30 @@ async function run() {
     // get all stories
     app.get("/stories", async (req, res) => {
       const stories = await storiesCollection.find().toArray();
-      res.json(stories);
+      res.send(stories);
+    });
+
+    // get specific booking by email
+    app.get("/stories/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const result = await storiesCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // delete a story
+    app.delete("/stories/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await storiesCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // post a story
+    app.post("/add-story", async (req, res) => {
+      const storyData = req.body;
+      const result = await storiesCollection.insertOne(storyData);
+      res.send(result);
     });
 
     // get random guides data
