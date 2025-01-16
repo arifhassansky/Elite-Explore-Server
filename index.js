@@ -45,6 +45,24 @@ async function run() {
       res.send(result);
     });
 
+    // update user profile
+    app.patch("/update-profile/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const userData = req.body;
+      const query = { _id: new ObjectId(id) };
+
+      const updatedDoc = {
+        $set: {
+          name: userData.name,
+          photo: userData.photo,
+        },
+      };
+
+      const result = await usersCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
+
     // get random tour data
     app.get("/random-tours", async (req, res) => {
       const randomPackages = await toursCollection
