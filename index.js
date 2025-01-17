@@ -33,6 +33,13 @@ async function run() {
     // add user
     app.post("/users", async (req, res) => {
       const userData = req.body;
+      const email = userData.email;
+
+      const isAxists = await usersCollection.findOne({ email });
+      if (isAxists) {
+        return;
+      }
+
       const result = await usersCollection.insertOne(userData);
       res.send(result);
     });
@@ -85,11 +92,19 @@ async function run() {
       res.send(stories);
     });
 
-    // get specific booking by email
+    // get specific stories by email
     app.get("/stories/:email", async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const result = await storiesCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // get story by id
+    app.get("/story/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await storiesCollection.findOne(query);
       res.send(result);
     });
 
@@ -108,6 +123,54 @@ async function run() {
       res.send(result);
     });
 
+    // Update story photos (Add new photos and remove specific ones)
+    app.put("/update-story/:id", async (req, res) => {
+      const id = req.params.id;
+      const { newPhotos, removedPhotos, title, excerpt } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ error: "Story ID is required." });
+      }
+
+      const query = { _id: new ObjectId(id) };
+      let updateDoc = {};
+
+      try {
+        // Update title and excerpt (if needed)
+        if (title || excerpt) {
+          updateDoc = { ...updateDoc, title, excerpt };
+        }
+
+        let updateResult = false;
+
+        // Step 1: Remove the photos that need to be deleted
+        if (removedPhotos && removedPhotos.length > 0) {
+          const removedPhotosResult = await storiesCollection.updateOne(query, {
+            $pull: { photo: { $in: removedPhotos } },
+          });
+          updateResult = removedPhotosResult.modifiedCount > 0;
+        }
+
+        // Step 2: Add new photos
+        if (newPhotos && newPhotos.length > 0) {
+          const newPhotosResult = await storiesCollection.updateOne(query, {
+            $push: { photo: { $each: newPhotos } },
+          });
+          updateResult = updateResult || newPhotosResult.modifiedCount > 0;
+        }
+
+        // Check if any changes were made
+        if (updateResult) {
+          res.status(200).json({ message: "Story updated successfully." });
+        } else {
+          res.status(400).json({ error: "No changes were made to the story." });
+        }
+      } catch (error) {
+        console.error("Error updating story:", error);
+        res.status(500).json({ error: "Failed to update story" });
+      }
+    });
+
     // get random guides data
     app.get("/guides", async (req, res) => {
       const randomGuides = await guidesCollection
@@ -119,7 +182,7 @@ async function run() {
     // get all guides
     app.get("/allGuides", async (req, res) => {
       const allGuides = await guidesCollection.find().toArray();
-      res.json(allGuides);
+      res.send(allGuides);
     });
 
     // get specific tour data
@@ -148,6 +211,44 @@ async function run() {
       const email = req.params.email;
       const query = { "user.email": email };
       const result = await bookingsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // get guide assigned tours
+    app.get("/guides-asigned-tours/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = {
+        "guide.email": email,
+      };
+      const allGuides = await bookingsCollection.find(query).toArray();
+      res.send(allGuides);
+    });
+
+    // update status when reject reject
+    app.patch("/bookings/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+
+      const updatedDoc = {
+        $set: {
+          status: "acepted",
+        },
+      };
+      const result = await bookingsCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
+
+    // update status when guide reject
+    app.patch("/bookings/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+
+      const updatedDoc = {
+        $set: {
+          status: "rejected",
+        },
+      };
+      const result = await bookingsCollection.updateOne(query, updatedDoc);
       res.send(result);
     });
 
