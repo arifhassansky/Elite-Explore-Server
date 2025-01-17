@@ -29,6 +29,9 @@ async function run() {
     const guidesCollection = client.db("EliteExplore").collection("guides");
     const storiesCollection = client.db("EliteExplore").collection("stories");
     const bookingsCollection = client.db("EliteExplore").collection("bookings");
+    const applicationsCollection = client
+      .db("EliteExplore")
+      .collection("applications");
 
     // add user
     app.post("/users", async (req, res) => {
@@ -65,6 +68,49 @@ async function run() {
       const email = req.params.email;
       const query = { email };
       const result = await usersCollection.findOne(query);
+      res.send(result);
+    });
+
+    // post for a guide application
+    app.post("/applications", async (req, res) => {
+      const applicationsData = req.body;
+      const result = await applicationsCollection.insertOne(applicationsData);
+      res.send(result);
+    });
+
+    // get all guide applications from users collection
+    app.get("/applications", async (req, res) => {
+      const applications = await applicationsCollection.find().toArray();
+      const emailList = applications.map((application) => application.email);
+
+      if (!emailList || emailList.length === 0) {
+        return res.status(404).send({ message: "No applications found." });
+      }
+      const query = { email: { $in: emailList } };
+
+      const result = await usersCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // accept the tour guide applications
+    app.patch("/accept-tour-guide/:email", async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      const query = { email };
+      const updatedDoc = {
+        $set: {
+          role: "guide",
+        },
+      };
+      const result = await usersCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
+
+    // delete the tour guide applications
+    app.delete("/reject-tour-guide/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const result = await applicationsCollection.deleteOne(query);
       res.send(result);
     });
 
