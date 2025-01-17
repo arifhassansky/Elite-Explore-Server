@@ -44,6 +44,22 @@ async function run() {
       res.send(result);
     });
 
+    // get all user
+    app.get("/users", async (req, res) => {
+      const { search, role } = req.query;
+      const query = {};
+
+      if (search) {
+        query.name = { $regex: search, $options: "i" };
+      }
+
+      if (role) {
+        query.role = role;
+      }
+      const result = await usersCollection.find(query).toArray();
+      res.send(result);
+    });
+
     // get user data by email
     app.get("/user/:email", async (req, res) => {
       const email = req.params.email;
