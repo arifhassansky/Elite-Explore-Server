@@ -201,6 +201,13 @@ async function run() {
       res.json(tours);
     });
 
+    // add tour data
+    app.post("/add-package", async (req, res) => {
+      const packageData = req.body;
+      const result = await toursCollection.insertOne(packageData);
+      res.send(result);
+    });
+
     // save bookings to the collection
     app.post("/booking", async (req, res) => {
       const bookingData = req.body;
