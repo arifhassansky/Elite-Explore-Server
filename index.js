@@ -124,6 +124,7 @@ async function run() {
     });
 
     // Update story photos (Add new photos and remove specific ones)
+
     app.put("/update-story/:id", async (req, res) => {
       const id = req.params.id;
       const { newPhotos, removedPhotos, title, excerpt } = req.body;
@@ -133,25 +134,26 @@ async function run() {
       }
 
       const query = { _id: new ObjectId(id) };
-      let updateDoc = {};
+      let updateDoc = { title, excerpt }; // Always update title and excerpt
 
       try {
-        // Update title and excerpt (if needed)
-        if (title || excerpt) {
-          updateDoc = { ...updateDoc, title, excerpt };
-        }
-
         let updateResult = false;
 
-        // Step 1: Remove the photos that need to be deleted
+        // Step 1: Update title and excerpt
+        const titleExcerptResult = await storiesCollection.updateOne(query, {
+          $set: updateDoc,
+        });
+        updateResult = titleExcerptResult.modifiedCount > 0;
+
+        // Step 2: Remove the photos that need to be deleted
         if (removedPhotos && removedPhotos.length > 0) {
           const removedPhotosResult = await storiesCollection.updateOne(query, {
             $pull: { photo: { $in: removedPhotos } },
           });
-          updateResult = removedPhotosResult.modifiedCount > 0;
+          updateResult = updateResult || removedPhotosResult.modifiedCount > 0;
         }
 
-        // Step 2: Add new photos
+        // Step 3: Add new photos
         if (newPhotos && newPhotos.length > 0) {
           const newPhotosResult = await storiesCollection.updateOne(query, {
             $push: { photo: { $each: newPhotos } },
