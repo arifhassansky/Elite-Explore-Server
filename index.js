@@ -159,18 +159,37 @@ async function run() {
 
     // get all user
     app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
-      const { search, role } = req.query;
+      const { search, role, page = 1, limit = 10 } = req.query;
       const query = {};
 
       if (search) {
-        query.name = { $regex: search, $options: "i" };
+        query.name = { $regex: search, $options: "i" }; // Case-insensitive search
       }
 
       if (role) {
         query.role = role;
       }
-      const result = await usersCollection.find(query).toArray();
-      res.send(result);
+
+      const skip = (page - 1) * parseInt(limit);
+
+      try {
+        const users = await usersCollection
+          .find(query)
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+        const total = await usersCollection.countDocuments(query);
+
+        res.send({
+          users,
+          total,
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / limit),
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Error fetching users" });
+      }
     });
 
     // get user data by email
@@ -187,20 +206,6 @@ async function run() {
       const result = await applicationsCollection.insertOne(applicationsData);
       res.send(result);
     });
-
-    // // get all guide applications from users collection
-    // app.get("/applicant", verifyToken, verifyAdmin, async (req, res) => {
-    //   const applications = await applicationsCollection.find().toArray();
-    //   const emailList = applications.map((application) => application.email);
-
-    //   if (!emailList || emailList.length === 0) {
-    //     return res.status(404).send({ message: "No applications found." });
-    //   }
-    //   const query = { email: { $in: emailList } };
-
-    //   const result = await usersCollection.find(query).toArray();
-    //   res.send(result);
-    // });
 
     // get all applications
     app.get("/applications", async (req, res) => {
