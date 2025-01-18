@@ -1,7 +1,9 @@
 require("dotenv").config();
 const express = require("express");
 const app = express();
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 3000;
 const cors = require("cors");
 
@@ -32,6 +34,114 @@ async function run() {
     const applicationsCollection = client
       .db("EliteExplore")
       .collection("applications");
+    const paymentCollection = client.db("EliteExplore").collection("payments");
+
+    // verify user token
+    const verifyToken = (req, res, next) => {
+      console.log(req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+      const token = req.headers.authorization.split(" ")[1];
+
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: "forbidden access" });
+        }
+        req.decoded = decoded;
+
+        next();
+      });
+    };
+
+    // verify a user admin or not
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      const isAdmin = user?.role == "admin";
+
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    // jwt related apis
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "10hr",
+      });
+      res.send({ token });
+    });
+
+    // check user admin or not
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        res.status(403).send({ message: "forbidden access" });
+      }
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      let admin = false;
+      if (user) {
+        admin = user?.role == "admin";
+      }
+      res.send({ admin });
+    });
+
+    // create payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+
+      // Create a PaymentIntent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+
+    // save payment info
+    app.post("/payment", async (req, res) => {
+      const payment = req.body;
+      const result = await paymentCollection.insertOne(payment);
+
+      const query = { _id: new ObjectId(payment.bookingsId) };
+
+      const updatedDoc = {
+        $set: {
+          status: "in review",
+        },
+      };
+      const deleteResult = await bookingsCollection.updateOne(
+        query,
+        updatedDoc
+      );
+      res.send({ result, deleteResult });
+    });
+
+    // get payment history by email
+    app.get("/payment/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      // verify the user
+      if (email !== req.decoded.email) {
+        res.status(403).send({ message: "forbidden access" });
+      }
+
+      const query = { email };
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
+    });
 
     // add user
     app.post("/users", async (req, res) => {
@@ -48,7 +158,7 @@ async function run() {
     });
 
     // get all user
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const { search, role } = req.query;
       const query = {};
 
@@ -64,7 +174,7 @@ async function run() {
     });
 
     // get user data by email
-    app.get("/user/:email", async (req, res) => {
+    app.get("/user/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const result = await usersCollection.findOne(query);
@@ -72,50 +182,78 @@ async function run() {
     });
 
     // post for a guide application
-    app.post("/applications", async (req, res) => {
+    app.post("/applications", verifyToken, async (req, res) => {
       const applicationsData = req.body;
       const result = await applicationsCollection.insertOne(applicationsData);
       res.send(result);
     });
 
-    // get all guide applications from users collection
+    // // get all guide applications from users collection
+    // app.get("/applicant", verifyToken, verifyAdmin, async (req, res) => {
+    //   const applications = await applicationsCollection.find().toArray();
+    //   const emailList = applications.map((application) => application.email);
+
+    //   if (!emailList || emailList.length === 0) {
+    //     return res.status(404).send({ message: "No applications found." });
+    //   }
+    //   const query = { email: { $in: emailList } };
+
+    //   const result = await usersCollection.find(query).toArray();
+    //   res.send(result);
+    // });
+
+    // get all applications
     app.get("/applications", async (req, res) => {
-      const applications = await applicationsCollection.find().toArray();
-      const emailList = applications.map((application) => application.email);
-
-      if (!emailList || emailList.length === 0) {
-        return res.status(404).send({ message: "No applications found." });
-      }
-      const query = { email: { $in: emailList } };
-
-      const result = await usersCollection.find(query).toArray();
+      const result = await applicationsCollection.find().toArray();
       res.send(result);
     });
 
     // accept the tour guide applications
-    app.patch("/accept-tour-guide/:email", async (req, res) => {
-      const email = req.params.email;
-      console.log(email);
-      const query = { email };
-      const updatedDoc = {
-        $set: {
-          role: "guide",
-        },
-      };
-      const result = await usersCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/accept-tour-guide",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const applicantData = req.body;
+
+        const email = applicantData.email;
+        const query = { email };
+
+        const updateStatus = {
+          $set: {
+            role: "guide",
+          },
+        };
+        const updateUserStatus = await usersCollection.updateOne(
+          query,
+          updateStatus
+        );
+
+        const updateguideStatus = await applicationsCollection.updateOne(
+          query,
+          updateStatus
+        );
+
+        const result = await guidesCollection.insertOne(applicantData);
+        res.send({ result, updateUserStatus, updateguideStatus });
+      }
+    );
 
     // delete the tour guide applications
-    app.delete("/reject-tour-guide/:email", async (req, res) => {
-      const email = req.params.email;
-      const query = { email };
-      const result = await applicationsCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/reject-tour-guide/:email",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+        const query = { email };
+        const result = await applicationsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     // update user profile
-    app.patch("/update-profile/:id", async (req, res) => {
+    app.patch("/update-profile/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       console.log(id);
       const userData = req.body;
@@ -155,7 +293,7 @@ async function run() {
     });
 
     // get specific stories by email
-    app.get("/stories/:email", async (req, res) => {
+    app.get("/stories/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const result = await storiesCollection.find(query).toArray();
@@ -163,7 +301,7 @@ async function run() {
     });
 
     // get story by id
-    app.get("/story/:id", async (req, res) => {
+    app.get("/story/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await storiesCollection.findOne(query);
@@ -171,7 +309,7 @@ async function run() {
     });
 
     // delete a story
-    app.delete("/stories/:id", async (req, res) => {
+    app.delete("/stories/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await storiesCollection.deleteOne(query);
@@ -179,7 +317,7 @@ async function run() {
     });
 
     // post a story
-    app.post("/add-story", async (req, res) => {
+    app.post("/add-story", verifyToken, async (req, res) => {
       const storyData = req.body;
       const result = await storiesCollection.insertOne(storyData);
       res.send(result);
@@ -187,7 +325,7 @@ async function run() {
 
     // Update story photos (Add new photos and remove specific ones)
 
-    app.put("/update-story/:id", async (req, res) => {
+    app.put("/update-story/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const { newPhotos, removedPhotos, title, excerpt } = req.body;
 
@@ -250,7 +388,7 @@ async function run() {
     });
 
     // get specific tour data
-    app.get("/details/:id", async (req, res) => {
+    app.get("/details/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const tour = await toursCollection.findOne(query);
@@ -264,7 +402,7 @@ async function run() {
     });
 
     // add tour data
-    app.post("/add-package", async (req, res) => {
+    app.post("/add-package", verifyToken, verifyAdmin, async (req, res) => {
       const packageData = req.body;
       const result = await toursCollection.insertOne(packageData);
       res.send(result);
@@ -285,6 +423,22 @@ async function run() {
       res.send(result);
     });
 
+    // get a booking by id
+    app.get("/book/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await bookingsCollection.findOne(query);
+      res.send(result);
+    });
+
+    // delete a booking
+    app.delete("/booking/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await bookingsCollection.deleteOne(query);
+      res.send(result);
+    });
+
     // get guide assigned tours
     app.get("/guides-asigned-tours/:email", async (req, res) => {
       const email = req.params.email;
@@ -295,14 +449,14 @@ async function run() {
       res.send(allGuides);
     });
 
-    // update status when reject reject
-    app.patch("/bookings/:id", async (req, res) => {
+    // update status when reject offer
+    app.patch("/bookings-reject/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
 
       const updatedDoc = {
         $set: {
-          status: "acepted",
+          status: "rejected",
         },
       };
       const result = await bookingsCollection.updateOne(query, updatedDoc);
@@ -310,13 +464,13 @@ async function run() {
     });
 
     // update status when guide reject
-    app.patch("/bookings/:id", async (req, res) => {
+    app.patch("/bookings-accept/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
 
       const updatedDoc = {
         $set: {
-          status: "rejected",
+          status: "accepted",
         },
       };
       const result = await bookingsCollection.updateOne(query, updatedDoc);
