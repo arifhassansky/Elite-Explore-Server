@@ -38,7 +38,6 @@ async function run() {
 
     // verify user token
     const verifyToken = (req, res, next) => {
-      console.log(req.headers.authorization);
       if (!req.headers.authorization) {
         return res.status(401).send({ message: "unauthorized access" });
       }
@@ -461,8 +460,18 @@ async function run() {
       res.send(allGuides);
     });
 
+    // get a guide data
+    app.get("/guide/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: new ObjectId(id),
+      };
+      const allGuides = await guidesCollection.findOne(query);
+      res.send(allGuides);
+    });
+
     // get specific tour data
-    app.get("/details/:id", verifyToken, async (req, res) => {
+    app.get("/details/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const tour = await toursCollection.findOne(query);
