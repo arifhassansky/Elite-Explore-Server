@@ -67,6 +67,19 @@ async function run() {
       }
       next();
     };
+    // verify a user guide or not
+    const verifyGuide = async (req, res, next) => {
+      const email = req.decoded.email;
+
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      const isGuide = user?.role == "guide";
+
+      if (!isGuide) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     // jwt related apis
     app.post("/jwt", (req, res) => {
@@ -93,8 +106,64 @@ async function run() {
       res.send({ admin });
     });
 
+    // check user guide or not
+    app.get("/users/guide/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        res.status(403).send({ message: "forbidden access" });
+      }
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      let guide = false;
+      if (user) {
+        guide = user?.role == "guide";
+      }
+      res.send({ guide });
+    });
+
+    // data for admin dashboard
+    app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
+      // Count Total Tour Guides
+      const totalGuides = await guidesCollection.countDocuments();
+
+      // Count Total Packages (using toursCollection)
+      const totalPackages = await toursCollection.countDocuments();
+
+      // Count Total Clients (Tourists) - based on usersCollection
+      const totalClients = await usersCollection.countDocuments({
+        role: "user",
+      });
+
+      // Count Total Stories (using storiesCollection)
+      const totalStories = await storiesCollection.countDocuments();
+
+      // Response as an array
+      res.send([
+        { name: "Guides", value: totalGuides },
+        { name: "Packages", value: totalPackages },
+        { name: "Clients", value: totalClients },
+        { name: "Stories", value: totalStories },
+      ]);
+    });
+
+    // get total payment for admin dashboard
+    app.get(
+      "/admin-total-payment",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        // Calculate Total Payment
+        const totalPayment = await paymentCollection
+          .aggregate([{ $group: { _id: null, total: { $sum: "$price" } } }])
+          .toArray();
+
+        res.send([{ name: "Payment", value: totalPayment[0]?.total || 0 }]);
+      }
+    );
+
     // create payment intent
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", verifyToken, async (req, res) => {
       const { price } = req.body;
       const amount = parseInt(price * 100);
 
@@ -111,7 +180,7 @@ async function run() {
     });
 
     // save payment info
-    app.post("/payment", async (req, res) => {
+    app.post("/payment", verifyToken, async (req, res) => {
       const payment = req.body;
       const result = await paymentCollection.insertOne(payment);
 
@@ -208,7 +277,7 @@ async function run() {
     });
 
     // get all applications
-    app.get("/applications", async (req, res) => {
+    app.get("/applications", verifyToken, verifyAdmin, async (req, res) => {
       const result = await applicationsCollection.find().toArray();
       res.send(result);
     });
@@ -414,14 +483,14 @@ async function run() {
     });
 
     // save bookings to the collection
-    app.post("/booking", async (req, res) => {
+    app.post("/booking", verifyToken, async (req, res) => {
       const bookingData = req.body;
       const result = await bookingsCollection.insertOne(bookingData);
       res.send(result);
     });
 
-    // get specific booking by email
-    app.get("/bookings/:email", async (req, res) => {
+    // get all booking by user
+    app.get("/bookings/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { "user.email": email };
       const result = await bookingsCollection.find(query).toArray();
@@ -429,7 +498,7 @@ async function run() {
     });
 
     // get a booking by id
-    app.get("/book/:id", async (req, res) => {
+    app.get("/book/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingsCollection.findOne(query);
@@ -445,42 +514,57 @@ async function run() {
     });
 
     // get guide assigned tours
-    app.get("/guides-asigned-tours/:email", async (req, res) => {
-      const email = req.params.email;
-      const query = {
-        "guide.email": email,
-      };
-      const allGuides = await bookingsCollection.find(query).toArray();
-      res.send(allGuides);
-    });
+    app.get(
+      "/guides-asigned-tours/:email",
+      verifyToken,
+      verifyGuide,
+      async (req, res) => {
+        const email = req.params.email;
+        const query = {
+          "guide.email": email,
+        };
+        const allGuides = await bookingsCollection.find(query).toArray();
+        res.send(allGuides);
+      }
+    );
 
     // update status when reject offer
-    app.patch("/bookings-reject/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
+    app.patch(
+      "/bookings-reject/:id",
+      verifyToken,
+      verifyGuide,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
 
-      const updatedDoc = {
-        $set: {
-          status: "rejected",
-        },
-      };
-      const result = await bookingsCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+        const updatedDoc = {
+          $set: {
+            status: "rejected",
+          },
+        };
+        const result = await bookingsCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
 
     // update status when guide reject
-    app.patch("/bookings-accept/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
+    app.patch(
+      "/bookings-accept/:id",
+      verifyToken,
+      verifyGuide,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
 
-      const updatedDoc = {
-        $set: {
-          status: "accepted",
-        },
-      };
-      const result = await bookingsCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+        const updatedDoc = {
+          $set: {
+            status: "accepted",
+          },
+        };
+        const result = await bookingsCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
 
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
