@@ -225,6 +225,19 @@ async function run() {
       res.send(result);
     });
 
+    // delete a user
+    app.delete(
+      "/delete-user/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await usersCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
+
     // get all user
     app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const { search, role, page = 1, limit = 10 } = req.query;
