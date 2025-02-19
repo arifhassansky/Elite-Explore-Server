@@ -8,7 +8,12 @@ const port = process.env.PORT || 3000;
 const cors = require("cors");
 
 // middlewares
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "https://elite-explore.netlify.app"],
+  })
+);
+
 app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@cluster0.koweo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -244,7 +249,7 @@ async function run() {
       const query = {};
 
       if (search) {
-        query.name = { $regex: search, $options: "i" }; // Case-insensitive search
+        query.name = { $regex: search, $options: "i" };
       }
 
       if (role) {
