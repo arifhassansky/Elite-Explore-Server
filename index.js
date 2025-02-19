@@ -498,8 +498,11 @@ async function run() {
 
     // get all tours data
     app.get("/tours", async (req, res) => {
-      const tours = await toursCollection.find().toArray();
-      res.json(tours);
+      const { sort } = req.query;
+      const sortOrder = sort ? { price: sort === "asc" ? 1 : -1 } : {};
+
+      const tours = await toursCollection.find().sort(sortOrder).toArray();
+      res.send(tours);
     });
 
     // add tour data
